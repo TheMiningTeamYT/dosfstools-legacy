@@ -110,6 +110,7 @@ static void get_block_linux_info(struct device_info *info, int devfd, dev_t rdev
 {
     struct stat st;
     char path[PATH_MAX];
+    char path2[PATH_MAX];
     int fd;
     int blockfd;
     FILE *file;
@@ -133,7 +134,8 @@ static void get_block_linux_info(struct device_info *info, int devfd, dev_t rdev
         return;
 
     /* Check if device is partition */
-    fd = openat(blockfd, "partition", O_RDONLY);
+    snprintf(path2, sizeof(path2), "%s/partition", path);
+    fd = open(path2, O_RDONLY);
     if (fd >= 0) {
         file = fdopen(fd, "r");
         if (file) {
@@ -144,7 +146,8 @@ static void get_block_linux_info(struct device_info *info, int devfd, dev_t rdev
             close(fd);
         }
         /* Read total number of sectors of the disk */
-        fd = openat(blockfd, "../size", O_RDONLY);
+        snprintf(path2, sizeof(path2), "%s/../size", path);
+        fd = open(path2, O_RDONLY);
         if (fd >= 0) {
             file = fdopen(fd, "r");
             if (file) {
@@ -164,7 +167,7 @@ static void get_block_linux_info(struct device_info *info, int devfd, dev_t rdev
     /* Check if device has partition subdevice and therefore has children */
     fd = dup(blockfd);
     if (fd >= 0) {
-        dir = fdopendir(fd);
+        dir = opendir(path);
         if (dir) {
             info->has_children = 0;
             errno = 0;
@@ -173,12 +176,12 @@ static void get_block_linux_info(struct device_info *info, int devfd, dev_t rdev
                     continue;
                 if (d->d_type != DT_DIR && d->d_type != DT_UNKNOWN)
                     continue;
-                snprintf(path, sizeof(path), "%s/partition", d->d_name);
-                if (fstatat(blockfd, path, &st, 0) == 0) {
+                snprintf(path2, sizeof(path2), "%s/%s/partition", path, d->d_name);
+                if (stat(path2, &st) == 0) {
                     if (S_ISREG(st.st_mode)) {
                         start = -1;
-                        snprintf(path, sizeof(path), "%s/start", d->d_name);
-                        fd = openat(blockfd, path, O_RDONLY);
+                        snprintf(path2, sizeof(path2), "%s/%s/start", path, d->d_name);
+                        fd = open(path2, O_RDONLY);
                         if (fd >= 0) {
                             file = fdopen(fd, "r");
                             if (file) {
@@ -210,9 +213,10 @@ static void get_block_linux_info(struct device_info *info, int devfd, dev_t rdev
 
     /* Check if device has holders and therefore has children */
     if (info->has_children <= 0) {
-        fd = openat(blockfd, "holders", O_RDONLY | O_DIRECTORY);
+        snprintf(path2, sizeof(path2), "%s/holders", path);
+        fd = open(path2, O_RDONLY | O_DIRECTORY);
         if (fd >= 0) {
-            dir = fdopendir(fd);
+            dir = opendir(path2);
             if (dir) {
                 while ((d = readdir(dir))) {
                     if (strcmp(d->d_name, ".") == 0 || strcmp(d->d_name, "..") == 0)
@@ -228,11 +232,14 @@ static void get_block_linux_info(struct device_info *info, int devfd, dev_t rdev
     }
 
     /* Check if device is slave of another device and therefore is virtual */
-    fd = openat(blockfd, "slaves", O_RDONLY | O_DIRECTORY);
-    if (fd < 0 && errno == ENOENT && info->partition != 0)
-        fd = openat(blockfd, "../slaves", O_RDONLY | O_DIRECTORY);
+    snprintf(path2, sizeof(path2), "%s/slaves", path);
+    fd = open(path2, O_RDONLY | O_DIRECTORY);
+    if (fd < 0 && errno == ENOENT && info->partition != 0) {
+        snprintf(path2, sizeof(path2), "%s/../slaves", path);
+        fd = open(path2, O_RDONLY | O_DIRECTORY);
+    }
     if (fd >= 0) {
-        dir = fdopendir(fd);
+        dir = opendir(path2);
         if (dir) {
             while ((d = readdir(dir))) {
                 if (strcmp(d->d_name, ".") == 0 || strcmp(d->d_name, "..") == 0)
@@ -261,9 +268,12 @@ static void get_block_linux_info(struct device_info *info, int devfd, dev_t rdev
     /* Device is neither loop nor virtual, so is either removable or fixed */
     if (info->type == TYPE_UNKNOWN) {
         removable = 0;
-        fd = openat(blockfd, "removable", O_RDONLY);
-        if (fd < 0 && errno == ENOENT && info->partition != 0)
-            fd = openat(blockfd, "../removable", O_RDONLY);
+        snprintf(path2, sizeof(path2), "%s/removable", path);
+        fd = open(path2, O_RDONLY);
+        if (fd < 0 && errno == ENOENT && info->partition != 0) {
+            snprintf(path2, sizeof(path2), "%s/../removable", path);
+            fd = open(path2, O_RDONLY);
+        }
         if (fd >= 0) {
             file = fdopen(fd, "r");
             if (file) {
